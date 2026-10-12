@@ -3,6 +3,8 @@
     "deny": [
       "Bash(git push origin main:*)",
       "Bash(git push origin HEAD:main)",
+      "Bash(git push origin HEAD:refs/heads/main)",
+      "Bash(git push --force*)",
       "Bash(gh pr merge:*)",
       "Bash(gh issue close:*)",
       "Bash(gh secret *)",

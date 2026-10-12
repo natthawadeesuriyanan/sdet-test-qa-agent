@@ -1,4 +1,4 @@
-name: QA shadow triage
+name: QA triage and agents
 
 on:
   workflow_run:
@@ -7,7 +7,13 @@ on:
 
 permissions:
   actions: read
-  contents: read
+  contents: write
+  id-token: write
+  issues: write
+  pull-requests: write
+# These write scopes are needed for issue/branch/PR creation, but also permit
+# other write operations via GitHub APIs. Protect the default branch with
+# mandatory human review before enabling this workflow on the remote.
 
 concurrency:
   group: qa-triage-${{ github.event.workflow_run.id }}
@@ -20,20 +26,38 @@ jobs:
       github.event.workflow_run.conclusion == 'failure' &&
       github.event.workflow_run.head_branch == github.event.repository.default_branch
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 90
     steps:
       - name: Checkout default branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
-          ref: ${{ github.event.repository.default_branch }}
+          ref: main
+          fetch-depth: 0
 
-      - name: Download nightly evidence
-        uses: actions/download-artifact@v4
+      - name: Set up Java 17
+        uses: actions/setup-java@v5
         with:
-          github-token: ${{ github.token }}
-          repository: ${{ github.repository }}
-          run-id: ${{ github.event.workflow_run.id }}
-          path: evidence
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+
+      - name: Install Playwright Chromium
+        working-directory: ui-tests
+        run: mvn test-compile exec:java -e -Dexec.classpathScope=test -Dexec.mainClass=com.microsoft.playwright.CLI -Dexec.args="install --with-deps chromium"
+
+      - name: Download nightly evidence when available
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          mkdir -p evidence
+          artifact_count="$(gh api "repos/$REPOSITORY/actions/runs/$RUN_ID/artifacts" --jq '[.artifacts[] | select(.expired == false)] | length')"
+          if [ "$artifact_count" -gt 0 ]; then
+            gh run download "$RUN_ID" --repo "$REPOSITORY" --dir evidence
+          else
+            echo "::warning::The nightly run uploaded no artifacts; classifying this as an environment/runner failure."
+          fi
 
       - name: Parse Surefire failures
         env:
@@ -43,6 +67,16 @@ jobs:
           python3 .claude/skills/log-analysis/scripts/parse_junit.py evidence \
             --run-id "$RUN_ID" \
             --output "triage/$RUN_ID/failures.json"
+
+      - name: Record upstream job outcomes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          gh api "repos/$REPOSITORY/actions/runs/$RUN_ID/jobs" \
+            --jq '[.jobs[] | {name, conclusion, failed_steps: [.steps[] | select(.conclusion == "failure") | .name]}]' \
+            > "triage/$RUN_ID/workflow-jobs.json"
 
       - name: Summarize Playwright traces
         env:
@@ -56,21 +90,34 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           if [ -z "$ANTHROPIC_API_KEY" ]; then
-            echo "::error::ANTHROPIC_API_KEY is required for shadow triage. Add it in Settings > Secrets and variables > Actions."
+            echo "::error::ANTHROPIC_API_KEY is required for QA triage. Add it in Settings > Secrets and variables > Actions."
             exit 1
           fi
 
-      - name: Run Failure Triage and conditional Bug Reporter agents
+      - name: Ensure QA agent labels
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh label create "agent:bug" --color "d73a4a" --description "Issue created by QA Bug Reporter" --force
+          gh label create "needs-decision" --color "fbca04" --description "Requires human confirmation" --force
+          gh label create "agent:fix" --color "1d76db" --description "Draft PR created by QA Test Fixer" --force
+
+      - name: Run Failure Triage, Bug Reporter, and Test Fixer agents
         uses: anthropics/claude-code-action@v1
+        env:
+          GH_TOKEN: ${{ github.token }}
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           prompt: |
             Run /triage-run ${{ github.event.workflow_run.id }}.
             Explicitly delegate each failed test to the failure-triage subagent.
-            For PRODUCT_BUG handoffs with confidence >= 0.8 only, delegate to
-            bug-reporter to write a draft under triage/${{ github.event.workflow_run.id }}/issue-drafts/.
-            Never publish issues or perform GitHub write actions.
-          claude_args: "--max-turns 80 --disallowedTools Bash,Edit"
+            For reproducible PRODUCT_BUG handoffs with confidence >= 0.8, delegate to
+            bug-reporter to search for duplicates and create a GitHub issue.
+            For TEST_DEFECT handoffs with confidence >= 0.8, delegate to test-fixer
+            (maximum three) to validate the minimal test-only change and open a draft PR.
+            Never merge, close, or confirm issues or PRs. Do not pass or request
+            GOREST_API_TOKEN; API tests requiring it cannot be rerun by these agents.
+          claude_args: "--max-turns 100"
 
       - name: Add digest to workflow summary
         if: always()
@@ -86,7 +133,7 @@ jobs:
 
       - name: Upload triage handoffs and issue drafts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: qa-triage-${{ github.event.workflow_run.id }}
           path: triage/${{ github.event.workflow_run.id }}/

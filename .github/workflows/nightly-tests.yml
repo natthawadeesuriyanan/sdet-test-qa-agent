@@ -2,11 +2,12 @@ name: QA nightly
 
 on:
   schedule:
-    - cron: "50 17 * * *"
+    # 02:00 Asia/Bangkok (UTC+7).
+    - cron: "0 19 * * *"
   workflow_dispatch:
 
 concurrency:
-  group: qa-nightly-${{ github.ref }}
+  group: qa-nightly-main
   cancel-in-progress: false
 
 permissions:
@@ -19,10 +20,12 @@ jobs:
     timeout-minutes: 45
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
+        with:
+          ref: main
 
       - name: Set up Java 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
@@ -40,7 +43,7 @@ jobs:
 
       - name: Upload UI reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: ui-test-evidence
           path: |
@@ -51,7 +54,7 @@ jobs:
 
       - name: Upload UI failure artifacts
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: ui-failure-evidence
           path: |
@@ -66,10 +69,12 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
+        with:
+          ref: main
 
       - name: Set up Java 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
@@ -92,7 +97,7 @@ jobs:
 
       - name: Upload API reports and transcripts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: api-test-evidence
           path: |

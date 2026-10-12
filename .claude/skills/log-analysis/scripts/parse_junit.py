@@ -89,8 +89,6 @@ def main() -> int:
     args = parser.parse_args()
 
     files = report_files(args.reports)
-    if not files:
-        parser.error(f"no TEST-*.xml reports found under {args.reports}")
     result = extract_failures(files, args.run_id)
     serialized = json.dumps(result, indent=2, ensure_ascii=False) + "\n"
 
