@@ -235,7 +235,7 @@ I also built an optional [`pr-command.yml`](./.github/workflows/pr-command.yml) 
 
 ```text
 /ui-test
-/ui-test core-flow-test browser chrome
+/ui-test inventory-screen-test browser chrome
 /ui-test all browser chrome,msedge
 /api-test
 /api-test user-validation-tests
@@ -247,9 +247,18 @@ While building it I also fixed issues involving action versioning, test discover
 
 ---
 
+# QA Agent Team — shadow rollout
+
+The Claude Code agent definitions and triage skill follow the [QA Agent Team design plan](./QA%20Agent%20Team%20%E2%80%94%20Design%20and%20Build%20Plan.md). The `QA nightly` workflow runs both Maven suites at 00:50 Bangkok time (17:50 UTC), or on demand, and retains Surefire/Allure reports plus UI failure screenshots and Playwright traces. When a default-branch nightly fails, `QA shadow triage` downloads the evidence, parses Surefire XML, summarizes Playwright traces without request headers or form values, and uploads triage handoffs and a digest as workflow artifacts.
+
+To enable the AI triage workflow, add `ANTHROPIC_API_KEY` as a repository Actions secret. The nightly API job also requires `GOREST_API_TOKEN`. Missing secrets produce an explicit failed step rather than silently skipping tests or triage.
+
+This is intentionally a **shadow-only** first phase: the workflow token is read-only, and agents cannot publish issues or PRs, push, or merge. Triage results are evidence-backed drafts for human review; the reporter, fixer, and validator roles are defined but are not automatically invoked. Enable broader permissions only after the agreement and rollout criteria in the design plan are met.
+
+---
+
 # What I would improve with more time
 
 - **UI:** investigate remaining case/whitespace and sort-persistence ambiguities with controlled starting states before classifying them as defects.
 - **API:** add a second GoREST token for cross-token isolation and authenticated write behavior; add the remaining identified validation edge cases.
 - **CI/reporting:** add environment metadata to Allure and evaluate CI parallelism against GitHub runner CPU limits.
-

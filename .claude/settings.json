@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "deny": [
+      "Bash(git push origin main:*)",
+      "Bash(git push origin HEAD:main)",
+      "Bash(gh pr merge:*)",
+      "Bash(gh issue close:*)",
+      "Bash(gh secret *)",
+      "Bash(gh variable *)",
+      "Edit(.github/workflows/**)",
+      "Write(.github/workflows/**)",
+      "Edit(.claude/**)",
+      "Write(.claude/**)"
+    ]
+  }
+}

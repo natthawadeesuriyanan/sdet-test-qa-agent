@@ -5,6 +5,7 @@ import com.microsoft.playwright.BrowserContext;
 import com.microsoft.playwright.BrowserType;
 import com.microsoft.playwright.Page;
 import com.microsoft.playwright.Playwright;
+import com.microsoft.playwright.Tracing;
 import com.saucedemo.config.TestConfig;
 import com.saucedemo.pages.actions.CartActions;
 import com.saucedemo.pages.actions.CheckoutActions;
@@ -50,8 +51,30 @@ public abstract class BaseTest {
     protected CheckoutActions checkoutActions;
 
     @RegisterExtension
-    protected final AfterTestExecutionCallback screenshotOnFailure = extensionContext -> {
-        if (extensionContext.getExecutionException().isEmpty() || page == null) {
+    protected final AfterTestExecutionCallback artifactsOnFailure = extensionContext -> {
+        boolean failed = extensionContext.getExecutionException().isPresent();
+
+        if (context != null) {
+            try {
+                if (failed) {
+                    Path tracePath = Path.of(
+                            "target",
+                            "traces",
+                            extensionContext.getRequiredTestClass().getSimpleName() + "_"
+                                    + extensionContext.getRequiredTestMethod().getName() + "_"
+                                    + System.currentTimeMillis() + ".zip");
+                    Files.createDirectories(tracePath.getParent());
+                    context.tracing().stop(new Tracing.StopOptions().setPath(tracePath));
+                    System.err.printf("Failure trace saved to: %s%n", tracePath.toAbsolutePath());
+                } else {
+                    context.tracing().stop();
+                }
+            } catch (Exception traceFailure) {
+                System.err.printf("Could not save browser trace: %s%n", traceFailure.getMessage());
+            }
+        }
+
+        if (!failed || page == null) {
             return;
         }
 
@@ -116,6 +139,10 @@ public abstract class BaseTest {
     @BeforeEach
     void createIsolatedContext() {
         context = browser.newContext(new Browser.NewContextOptions().setViewportSize(1440, 900));
+        context.tracing().start(new Tracing.StartOptions()
+                .setScreenshots(true)
+                .setSnapshots(true)
+                .setSources(true));
         page = context.newPage();
         page.setDefaultTimeout(TestConfig.timeoutMs());
         page.setDefaultNavigationTimeout(Math.max(20_000, TestConfig.timeoutMs()));

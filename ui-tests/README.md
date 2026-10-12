@@ -18,15 +18,16 @@ Run the suite:
 mvn test
 ```
 
-Run a focused group:
+Run a focused screen suite:
 
 ```powershell
-mvn "-Dtest=CoreFlowTest" test
-mvn "-Dtest=ProblemUserTest" test
-mvn "-Dtest=EdgeCoverageTest" test
+mvn "-Dtest=LoginScreenTest" test
+mvn "-Dtest=InventoryScreenTest" test
+mvn "-Dtest=CartScreenTest" test
+mvn "-Dtest=CheckoutScreenTest" test
 ```
 
-Run only known-defect regression tests (tests tagged `@Tag("known-defect")`, currently in `ProblemUserTest`):
+Run only known-defect regression tests (tests tagged `@Tag("known-defect")` across the screen suites):
 
 ```powershell
 mvn "-Dgroups=known-defect" test
@@ -42,9 +43,12 @@ The Playwright browser install is a one-time step per Playwright version. Playwr
 
 ## Coverage
 
-- `CoreFlowTest`: TC-01–03, TC-05–11, TC-14–22, TC-25–26. Includes `standard_user` checkout, `locked_out_user` rejection (TC-03, asserts the exact "Epic sadface: Sorry, this user has been locked out." message), authentication validation, incremental cart badge, checkout field validation (all three mandatory fields), sorting, totals/tax, and performance measurement.
-- `ProblemUserTest`: TC-04, TC-12, TC-13a–13b, TC-23–24. Known defects are tagged `@Tag("known-defect")` and asserted as observed so a site change makes the regression check fail for review — see "Observed Defects Summary" below for the full list.
-- `EdgeCoverageTest`: TC-27–33, TC-36–38. Includes the receipt PDF download (TC-37) and the Reset App State stale-label behavior (TC-38), both discovered during exploration and outside the original Part 0 scope.
+- `LoginScreenTest`: login validation and performance (TC-03, TC-05–10, TC-36).
+- `InventoryScreenTest`: inventory listing, sorting, cart badge, inventory controls, navigation state, and reset behavior (TC-01, TC-11–12, TC-15–18, TC-23–24, TC-27–28, TC-30, TC-38).
+- `CartScreenTest`: cart removal and state after returning from order confirmation (TC-13b, TC-33).
+- `CheckoutScreenTest`: checkout validation, totals, order completion, and receipt download (TC-02, TC-04, TC-14, TC-19–22, TC-26, TC-29, TC-31–32, TC-37).
+
+Known defects remain tagged `@Tag("known-defect")` in the screen suite that owns the affected screen and are asserted as observed so a site change makes the regression check fail for review — see "Observed Defects Summary" below for the full list.
 - TC-34 and TC-35 remain manual: case sensitivity and whitespace trimming are unresolved in the supplied test design and have no agreed expected result.
 
 The test plan's 8% tax rate is an observed assumption, not a published contract. It is defined once as `TAX_RATE` and applied to prices read from the site using decimal arithmetic. The suite verifies totals against that configured assumption.
@@ -80,6 +84,10 @@ If either question is resolved by further testing, this test's name and assertio
 
 The suite generates Allure results (`target/allure-results`) via `allure-jupiter`; results directory is set in `src/test/resources/allure.properties`. CI generates the full HTML report (via the official `allure-commandline` npm package) and uploads it as the `ui-allure-report` artifact on every run. To view locally: `allure generate target/allure-results --clean -o target/allure-report`, then `allure open target/allure-report` (or serve it with any static file server — opening `index.html` directly from the filesystem will not load correctly).
 
+## Failure Evidence
+
+Each UI test records a Playwright trace in its isolated browser context. Passing-test traces are discarded; on failure the trace is saved to `target/traces/` alongside the existing screenshot in `target/screenshots/`. The `QA nightly` workflow uploads both failure-artifact directories together with Surefire and Allure results for diagnosis.
+
 ## Retry Policy
 
 Only three tests retry, via `@RetryingTest(3)` from `junit-pioneer`: the `performance_glitch_user` login/checkout timing assertions and the `standard_user` login baseline (`TC09`/`TC25`, `TC26`, `TC10`). Rationale: these assert a timing SLA against saucedemo.com, a live shared service, where a single slow network blip is noise unrelated to any real regression — a *consistent* slowdown still fails all 3 attempts, so the retry doesn't mask an actual performance regression. No other test retries: a flaky functional or known-defect assertion is a real bug to investigate, not noise to filter out by trying again.
@@ -95,9 +103,9 @@ The suite runs on Chromium by default, but can target any of 5 browsers via `Tes
 Select a browser with the `saucedemo.browser` system property (or the `SAUCEDEMO_BROWSER` environment variable), following the same convention as `saucedemo.headless`:
 
 ```powershell
-mvn test "-Dsaucedemo.browser=firefox" "-Dtest=CoreFlowTest"
-mvn test "-Dsaucedemo.browser=webkit" "-Dtest=CoreFlowTest"
-mvn test "-Dsaucedemo.browser=chrome" "-Dtest=CoreFlowTest"
+mvn test "-Dsaucedemo.browser=firefox" "-Dtest=LoginScreenTest"
+mvn test "-Dsaucedemo.browser=webkit" "-Dtest=LoginScreenTest"
+mvn test "-Dsaucedemo.browser=chrome" "-Dtest=LoginScreenTest"
 ```
 
 `chrome` and `msedge` require that browser to actually be installed on the machine running the tests (they aren't downloaded by Playwright the way Chromium/Firefox/WebKit are); `chromium`, `firefox` and `webkit` need their Playwright-managed binary installed first, the same way as the default Chromium setup above, just naming the engine instead:
@@ -122,4 +130,4 @@ Override the base URL or browser mode with `SAUCEDEMO_BASE_URL` and `SAUCEDEMO_H
 
 ## Extra, Not Part of the Assignment: Running from a PR Comment
 
-A collaborator can trigger this suite (or a single test class, on a specific browser) from a PR comment — `/ui-test`, `/ui-test core-flow-test`, `/ui-test all browser chrome,msedge`, etc. — without running anything locally. See the root `README.md`'s "Beyond the brief — on-demand PR testing" for the full command list, the security model, and the bugs found while building it; see "Multi-Browser Support" above for how the `browser` option is wired to actual test code.
+A collaborator can trigger this suite (or a single screen suite, on a specific browser) from a PR comment — `/ui-test`, `/ui-test inventory-screen-test`, `/ui-test all browser chrome,msedge`, etc. — without running anything locally. See the root `README.md`'s "Beyond the brief — on-demand PR testing" for the full command list, the security model, and the bugs found while building it; see "Multi-Browser Support" above for how the `browser` option is wired to actual test code.
