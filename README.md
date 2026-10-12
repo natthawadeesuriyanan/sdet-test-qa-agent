@@ -249,7 +249,7 @@ While building it I also fixed issues involving action versioning, test discover
 
 # QA Agent Team — shadow rollout
 
-The Claude Code agent definitions and triage skill follow the [QA Agent Team design plan](./QA%20Agent%20Team%20%E2%80%94%20Design%20and%20Build%20Plan.md). The `QA nightly` workflow runs both Maven suites at 00:50 Bangkok time (17:50 UTC), or on demand, and retains Surefire/Allure reports plus UI failure screenshots and Playwright traces. When a default-branch nightly fails, `QA shadow triage` downloads the evidence, parses Surefire XML, summarizes Playwright traces without request headers or form values, and uploads triage handoffs and a digest as workflow artifacts.
+The Claude Code agent definitions and triage skill follow the [QA Agent Team design plan](./QA%20Agent%20Team%20%E2%80%94%20Design%20and%20Build%20Plan.md). The `QA nightly` workflow runs both Maven suites at 00:50 Bangkok time (17:50 UTC), or on demand, and retains Surefire/Allure reports plus UI failure screenshots and Playwright traces. When a default-branch nightly fails, `QA shadow triage` downloads the evidence, parses Surefire XML, summarizes Playwright traces without request headers or form values, delegates each failed test to `failure-triage`, and invokes `bug-reporter` only for `PRODUCT_BUG` handoffs with confidence at least 0.8. The reporter writes draft issue text for review; triage handoffs, drafts, and the digest are uploaded as workflow artifacts.
 
 To enable the AI triage workflow, add `ANTHROPIC_API_KEY` as a repository Actions secret. The nightly API job also requires `GOREST_API_TOKEN`. Missing secrets produce an explicit failed step rather than silently skipping tests or triage.
 

@@ -60,11 +60,16 @@ jobs:
             exit 1
           fi
 
-      - name: Run Claude shadow triage
+      - name: Run Failure Triage and conditional Bug Reporter agents
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          prompt: "/triage-run ${{ github.event.workflow_run.id }}"
+          prompt: |
+            Run /triage-run ${{ github.event.workflow_run.id }}.
+            Explicitly delegate each failed test to the failure-triage subagent.
+            For PRODUCT_BUG handoffs with confidence >= 0.8 only, delegate to
+            bug-reporter to write a draft under triage/${{ github.event.workflow_run.id }}/issue-drafts/.
+            Never publish issues or perform GitHub write actions.
           claude_args: "--max-turns 80 --disallowedTools Bash,Edit"
 
       - name: Add digest to workflow summary
@@ -79,7 +84,7 @@ jobs:
             echo "No triage digest was produced. Review the Claude step and uploaded evidence." >> "$GITHUB_STEP_SUMMARY"
           fi
 
-      - name: Upload triage handoffs
+      - name: Upload triage handoffs and issue drafts
         if: always()
         uses: actions/upload-artifact@v4
         with:
