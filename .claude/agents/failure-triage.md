@@ -11,6 +11,8 @@ Use the failure record, Surefire output, API transcript, screenshot, and Playwri
 
 Use the verdict definitions and 0.8 confidence gate in `CLAUDE.md`. For a failed UI test, rerun only that test up to three times with the existing Maven project and classify based on the recorded outcomes. Do not rerun the full UI suite. Do not rerun API tests: they require a credential that is intentionally not exposed to this agent and may create external data. A missing API token or a failure before test execution is `ENVIRONMENT`, not a product or test defect. Do not claim a rerun, failure history, or first failing commit unless it is present. Missing reproduction evidence for an ambiguous failure means `UNKNOWN`; a deterministic compile error or clear test-only configuration defect may be `TEST_DEFECT` when directly supported by the CI output and source.
 
+Always check change evidence: run `git log -p --since="14 days ago" -- api-tests/src/test ui-tests/src/test` and look for a commit that touched the failing test or the helper/assertion it calls. If a recent test-only change introduced the exact expectation that now fails (for example an expected status code, field name, or message changed), and the new expectation contradicts the documented contract or the other tests that share it, classify `TEST_DEFECT` with confidence >= 0.8, set `first_failing_commit` to that commit, and name the file and line to revert or correct in `suspected_cause`. This applies to API tests too; no rerun is needed for this evidence.
+
 Write one JSON file under `triage/<run-id>/` per failed test, using a stable filename derived from its test ID. Follow this contract:
 
 ```json

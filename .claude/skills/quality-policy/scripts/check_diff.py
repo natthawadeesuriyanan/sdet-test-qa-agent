@@ -7,9 +7,10 @@ import argparse
 import re
 import subprocess
 import sys
+from collections import Counter
 
 
-ASSERTION = re.compile(r"\bassert[A-Z]\w*\s*\(|\bassertThat(?:ThrownBy|Code)?\s*\(")
+ASSERTION = re.compile(r"\b(assert[A-Z]\w*|assertThat(?:ThrownBy|Code)?)\s*\(")
 FORBIDDEN_ADDITION = re.compile(
     r"\bThread\s*\.\s*sleep\s*\(|\bwaitForTimeout\s*\(|@Disabled\b|@RetryingTest\b"
 )
@@ -75,13 +76,28 @@ def main() -> int:
 
         patch = git("diff", "--cached", "--no-ext-diff", "--unified=0", args.base)
         violations: list[str] = []
+        # An assertion may be corrected (e.g. assertStatus(r, 404) -> assertStatus(r, 422)),
+        # but every removed assertion call must be replaced by the same kind of call in the
+        # same file. A net loss of any assertion kind is a weakened test and is rejected.
+        removed: dict[str, Counter] = {}
+        added: dict[str, Counter] = {}
+        current = ""
         for line in patch.splitlines():
-            if line.startswith("---") or line.startswith("+++"):
+            if line.startswith("+++ "):
+                current = line[6:] if line.startswith("+++ b/") else line[4:]
                 continue
-            if line.startswith("-") and ASSERTION.search(line[1:]):
-                violations.append("removed assertion line")
-            if line.startswith("+") and FORBIDDEN_ADDITION.search(line[1:]):
-                violations.append("added a sleep, retry annotation, or disabled test")
+            if line.startswith("---"):
+                continue
+            if line.startswith("-"):
+                removed.setdefault(current, Counter()).update(m.group(1) for m in ASSERTION.finditer(line[1:]))
+            if line.startswith("+"):
+                added.setdefault(current, Counter()).update(m.group(1) for m in ASSERTION.finditer(line[1:]))
+                if FORBIDDEN_ADDITION.search(line[1:]):
+                    violations.append("added a sleep, retry annotation, or disabled test")
+        for path, kinds in removed.items():
+            missing = kinds - added.get(path, Counter())
+            if missing:
+                violations.append(f"removed assertion line(s) without replacement in {path}: {dict(missing)}")
         if violations:
             raise ValueError(", ".join(sorted(set(violations))))
 
