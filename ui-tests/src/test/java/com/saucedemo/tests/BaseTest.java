@@ -7,6 +7,7 @@ import com.microsoft.playwright.Page;
 import com.microsoft.playwright.Playwright;
 import com.microsoft.playwright.Tracing;
 import com.saucedemo.config.TestConfig;
+import com.saucedemo.helper.CheckoutTestData;
 import com.saucedemo.pages.actions.CartActions;
 import com.saucedemo.pages.actions.CheckoutActions;
 import com.saucedemo.pages.actions.InventoryActions;
@@ -184,7 +185,8 @@ public abstract class BaseTest {
     protected CheckoutActions beginCheckout(CartActions cart) {
         cart.checkout();
         checkoutActions = new CheckoutActions(checkoutLocators);
-        checkoutActions.enterInformation("Ada", "Lovelace", "94105");
+        CheckoutTestData data = CheckoutTestData.unique();
+        checkoutActions.enterInformation(data.firstName(), data.lastName(), data.postalCode());
         checkoutActions.continueToOverview();
         return checkoutActions;
     }

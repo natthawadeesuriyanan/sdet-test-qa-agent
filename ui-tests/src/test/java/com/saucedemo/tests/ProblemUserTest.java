@@ -1,6 +1,7 @@
 package com.saucedemo.tests;
 
 import com.microsoft.playwright.assertions.PlaywrightAssertions;
+import com.saucedemo.helper.CheckoutTestData;
 import com.saucedemo.pages.actions.CartActions;
 import com.saucedemo.pages.actions.CheckoutActions;
 import com.saucedemo.pages.actions.InventoryActions;
@@ -13,17 +14,23 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import static com.saucedemo.helper.ProductNames.SAUCE_LABS_BACKPACK;
+import static com.saucedemo.helper.ProductNames.SAUCE_LABS_BIKE_LIGHT;
+import static com.saucedemo.helper.ProductNames.SAUCE_LABS_BOLT_T_SHIRT;
+import static com.saucedemo.helper.ProductNames.SAUCE_LABS_FLEECE_JACKET;
+import static com.saucedemo.helper.ProductNames.SAUCE_LABS_ONESIE;
+import static com.saucedemo.helper.ProductNames.TEST_ALL_THE_THINGS_T_SHIRT_RED;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 class ProblemUserTest extends BaseTest {
     private static final String PROBLEM_USER = "problem_user";
     private static final Map<String, String> OBSERVED_ADD_BUTTONS = Map.of(
-            "Sauce Labs Backpack", "Remove",
-            "Sauce Labs Bike Light", "Remove",
-            "Sauce Labs Bolt T-Shirt", "Add to cart",
-            "Sauce Labs Fleece Jacket", "Add to cart",
-            "Sauce Labs Onesie", "Remove",
-            "Test.allTheThings() T-Shirt (Red)", "Add to cart");
+            SAUCE_LABS_BACKPACK, "Remove",
+            SAUCE_LABS_BIKE_LIGHT, "Remove",
+            SAUCE_LABS_BOLT_T_SHIRT, "Add to cart",
+            SAUCE_LABS_FLEECE_JACKET, "Add to cart",
+            SAUCE_LABS_ONESIE, "Remove",
+            TEST_ALL_THE_THINGS_T_SHIRT_RED, "Add to cart");
     private InventoryActions inventory;
     
     @BeforeEach
@@ -34,16 +41,17 @@ class ProblemUserTest extends BaseTest {
     @Test
     @Tag("known-defect")
     void TC04_lastNameInputOverwritesFirstNameAndPreventsSubmission() {
-        CartActions cart = addAndOpenCart(inventory, "Sauce Labs Backpack");
+        CartActions cart = addAndOpenCart(inventory, SAUCE_LABS_BACKPACK);
         cart.checkout();
         CheckoutActions checkout = checkoutActions;
-        checkout.enterInformation("Ida", "Lover", "A1A 1A1");
+        CheckoutTestData data = CheckoutTestData.unique();
+        checkout.enterInformation(data.firstName(), data.lastName(), data.postalCode());
         // Confirmed defect (highest severity in this suite): typing in the Last
         // Name field on the checkout form shifts the text into the First Name
         // field instead, leaving Last Name empty.
         // TODO:  If the defect is fixed, should be uncomment out the following two lines to assert normal field behavior:
-        // assertEquals("Ida", checkoutLocators.firstName().inputValue());
-        // assertEquals("Lover", checkoutLocators.lastName().inputValue());
+        // assertEquals(data.firstName(), checkoutLocators.firstName().inputValue());
+        // assertEquals(data.lastName(), checkoutLocators.lastName().inputValue());
         checkout.continueToOverview();
         PlaywrightAssertions.assertThat(checkoutLocators.error()).containsText("Error: Last Name is required");
     }
@@ -68,11 +76,11 @@ class ProblemUserTest extends BaseTest {
         // Confirmed defect (verified manually on the live site): clicking "Remove"
         // on the Inventory page does NOT remove the item and does NOT update the
         // cart badge. The button stays stuck showing "Remove" instead of toggling
-        inventory.addProduct("Sauce Labs Bike Light");
-        inventory.addProduct("Sauce Labs Backpack");
-        inventory.removeProduct("Sauce Labs Backpack");
+        inventory.addProduct(SAUCE_LABS_BIKE_LIGHT);
+        inventory.addProduct(SAUCE_LABS_BACKPACK);
+        inventory.removeProduct(SAUCE_LABS_BACKPACK);
 
-        PlaywrightAssertions.assertThat(inventoryLocators.productButton("Sauce Labs Backpack")).hasText("Remove");
+        PlaywrightAssertions.assertThat(inventoryLocators.productButton(SAUCE_LABS_BACKPACK)).hasText("Remove");
         // TODO: If the defect is fixed, change the expected text to 1 instead of 2.
         PlaywrightAssertions.assertThat(inventoryLocators.cartBadge()).hasText("2");
     }
@@ -80,10 +88,10 @@ class ProblemUserTest extends BaseTest {
     @Test
     void TC13b_problemUserRemoveCartItemsOnCartPage() {
         // Control case for TC13a: confirms the Cart-page Remove button works
-        CartActions cart = addAndOpenCart(inventory, "Sauce Labs Backpack", "Sauce Labs Bike Light");
-        cart.remove("Sauce Labs Backpack");
+        CartActions cart = addAndOpenCart(inventory, SAUCE_LABS_BACKPACK, SAUCE_LABS_BIKE_LIGHT);
+        cart.remove(SAUCE_LABS_BACKPACK);
 
-        assertEquals(List.of("Sauce Labs Bike Light"), cart.itemNames());
+        assertEquals(List.of(SAUCE_LABS_BIKE_LIGHT), cart.itemNames());
         PlaywrightAssertions.assertThat(cartLocators.cartBadge()).hasText("1");
     }
 

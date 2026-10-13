@@ -3,6 +3,7 @@ package com.saucedemo.tests;
 import com.microsoft.playwright.Download;
 import com.microsoft.playwright.assertions.PlaywrightAssertions;
 import com.saucedemo.config.TestConfig;
+import com.saucedemo.helper.CheckoutTestData;
 import com.saucedemo.pages.actions.CartActions;
 import com.saucedemo.pages.actions.CheckoutActions;
 import com.saucedemo.pages.actions.InventoryActions;
@@ -15,6 +16,9 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.regex.Pattern;
 
+import static com.saucedemo.helper.ProductNames.SAUCE_LABS_BACKPACK;
+import static com.saucedemo.helper.ProductNames.SAUCE_LABS_BIKE_LIGHT;
+import static com.saucedemo.helper.ProductNames.SAUCE_LABS_ONESIE;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -24,8 +28,8 @@ class EdgeCoverageTest extends BaseTest {
     @Test
     void TC27_standardUserCanRemoveItemFromCart() {
         InventoryActions inventory = loginAs(STANDARD_USER);
-        inventory.addProduct("Sauce Labs Backpack");
-        inventory.removeProduct("Sauce Labs Backpack");
+        inventory.addProduct(SAUCE_LABS_BACKPACK);
+        inventory.removeProduct(SAUCE_LABS_BACKPACK);
 
         PlaywrightAssertions.assertThat(inventoryLocators.cartBadge()).not().isVisible();
     }
@@ -33,22 +37,23 @@ class EdgeCoverageTest extends BaseTest {
     @Test
     void TC28_cartStatePersistAfterGoBack() {
         InventoryActions inventory = loginAs(STANDARD_USER);
-        inventory.addProduct("Sauce Labs Backpack");
-        inventory.openProduct("Sauce Labs Backpack");
+        inventory.addProduct(SAUCE_LABS_BACKPACK);
+        inventory.openProduct(SAUCE_LABS_BACKPACK);
         page.goBack();
         inventory.waitUntilLoaded();
 
         PlaywrightAssertions.assertThat(inventoryLocators.cartBadge()).hasText("1");
-        PlaywrightAssertions.assertThat(inventoryLocators.productButton("Sauce Labs Backpack")).hasText("Remove");
+        PlaywrightAssertions.assertThat(inventoryLocators.productButton(SAUCE_LABS_BACKPACK)).hasText("Remove");
     }
 
     @Test
     void TC29_canadianPostalCodeIsAccepted() {
         InventoryActions inventory = loginAs(STANDARD_USER);
-        CartActions cart = addAndOpenCart(inventory, "Sauce Labs Backpack");
+        CartActions cart = addAndOpenCart(inventory, SAUCE_LABS_BACKPACK);
         cart.checkout();
         CheckoutActions checkout = checkoutActions;
-        checkout.enterInformation("Ada", "Lovelace", "A1A 1A1");
+        CheckoutTestData data = CheckoutTestData.unique();
+        checkout.enterInformation(data.firstName(), data.lastName(), "A1A 1A1");
         checkout.continueToOverview();
         PlaywrightAssertions.assertThat(page).hasURL(Pattern.compile(".*/checkout-step-two\\.html"));
     }
@@ -74,11 +79,11 @@ class EdgeCoverageTest extends BaseTest {
     @Test
     void TC31_checkoutTotalsChangeAfterRemovingAnItem() {
         InventoryActions inventory = loginAs(STANDARD_USER);
-        CartActions cart = addAndOpenCart(inventory, "Sauce Labs Backpack", "Sauce Labs Bike Light");
-        cart.remove("Sauce Labs Backpack");
+        CartActions cart = addAndOpenCart(inventory, SAUCE_LABS_BACKPACK, SAUCE_LABS_BIKE_LIGHT);
+        cart.remove(SAUCE_LABS_BACKPACK);
         PlaywrightAssertions.assertThat(cartLocators.items()).hasCount(1);
         BigDecimal remainingPrice = cart.itemPrices().get(0);
-        CheckoutActions checkout = beginCheckout(cart, "Idea", "Slow", "30120");
+        CheckoutActions checkout = beginCheckout(cart);
 
         BigDecimal expectedTax = Money.tax(remainingPrice, TestConfig.TAX_RATE);
         assertEquals(remainingPrice, checkout.totalBeforeTax());
@@ -99,8 +104,8 @@ class EdgeCoverageTest extends BaseTest {
     @Test
     void TC33_cartWasClearedAfterReturningFromOrderConfirmation() {
         InventoryActions inventory = loginAs(STANDARD_USER);
-        CartActions cart = addAndOpenCart(inventory, "Sauce Labs Backpack");
-        CheckoutActions checkout = beginCheckout(cart, "Ada", "Lovelace", "94105");
+        CartActions cart = addAndOpenCart(inventory, SAUCE_LABS_BACKPACK);
+        CheckoutActions checkout = beginCheckout(cart);
         checkout.finish();
         PlaywrightAssertions.assertThat(checkoutLocators.confirmation()).isVisible();
         PlaywrightAssertions.assertThat(checkoutLocators.confirmation()).hasText("Thank you for your order!");
@@ -144,24 +149,24 @@ class EdgeCoverageTest extends BaseTest {
     @Test
     void TC38_verifyResetAppStateMenu() {
         InventoryActions inventory = loginAs(STANDARD_USER);
-        inventory.addProduct("Sauce Labs Onesie");
+        inventory.addProduct(SAUCE_LABS_ONESIE);
         PlaywrightAssertions.assertThat(inventoryLocators.cartBadge()).hasText("1");
         inventory.resetAppState();
 
     // Confirmed defect: cart actually clears (badge disappears), but the button
     // label does not revert from "Remove" back to "Add to cart" on its own.
-    //  PlaywrightAssertions.assertThat(inventoryLocators.addButton("Sauce Labs Onesie")).isVisible();
+    //  PlaywrightAssertions.assertThat(inventoryLocators.addButton(SAUCE_LABS_ONESIE)).isVisible();
         PlaywrightAssertions.assertThat(inventoryLocators.cartBadge()).not().isVisible();
-        PlaywrightAssertions.assertThat(inventoryLocators.productButton("Sauce Labs Onesie")).hasText("Remove");
+        PlaywrightAssertions.assertThat(inventoryLocators.productButton(SAUCE_LABS_ONESIE)).hasText("Remove");
 
     // Confirmed: clicking the stale "Remove" button removes nothing (cart is
     // already empty), and the label self-corrects to "Add to cart".
-        inventory.removeProduct("Sauce Labs Onesie");
-        PlaywrightAssertions.assertThat(inventoryLocators.productButton("Sauce Labs Onesie")).hasText("Add to cart");
+        inventory.removeProduct(SAUCE_LABS_ONESIE);
+        PlaywrightAssertions.assertThat(inventoryLocators.productButton(SAUCE_LABS_ONESIE)).hasText("Add to cart");
         PlaywrightAssertions.assertThat(inventoryLocators.cartBadge()).not().isVisible();
 
     // Confirmed: normal add-to-cart flow works correctly after the self-correction.
-        inventory.addProduct("Sauce Labs Onesie");
+        inventory.addProduct(SAUCE_LABS_ONESIE);
         PlaywrightAssertions.assertThat(inventoryLocators.cartBadge()).hasText("1");
     }
 
