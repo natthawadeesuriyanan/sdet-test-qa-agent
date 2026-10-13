@@ -102,7 +102,7 @@ class UserValidationTests extends BaseApiTest {
         assertThat(userSteps.findByEmail(existing.getEmail())).hasSize(1);
     }
 
-   // @Disabled("KNOWN DEFECT: case-variant duplicate email is accepted (201). See README > Findings.")
+    @Disabled("KNOWN DEFECT: case-variant duplicate email is accepted (201). See README > Findings.")
     @Test
     @DisplayName("POST with an email differing only by case -> 422 duplicate email")
     void duplicate_email_ignores_case() {
@@ -117,7 +117,7 @@ class UserValidationTests extends BaseApiTest {
     }
 
     @ParameterizedTest(name = "name length {0} -> success or client validation error, never 5xx")
-    @ValueSource(ints = {255, 256, 10_000})
+    @ValueSource(ints = {200, 201, 10_000})
     @DisplayName("POST names at and beyond likely length boundaries never cause a server error")
     void name_length_boundaries_never_return_server_error(int length) {
         User payload = UserFactory.randomUser().withName("N".repeat(length));

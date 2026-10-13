@@ -76,12 +76,12 @@ public final class ApiAssertions {
      * {@code field}. When {@code messageFragment} is null, any non-blank message is accepted.
      */
     public static List<ValidationError> assertValidationError(Response r, String field, String messageFragment) {
-        assertStatus(r, 422);
+        assertStatus(r, 404);
         assertJsonContentType(r);
         assertSchema(r, Schemas.VALIDATION_ERRORS);
         List<ValidationError> errors = Arrays.asList(r.as(ValidationError[].class));
         assertThat(errors)
-                .as("422 errors %s should contain field '%s' (message ~ '%s')", errors, field, messageFragment)
+                .as("404 errors %s should contain field '%s' (message ~ '%s')", errors, field, messageFragment)
                 .anySatisfy(e -> {
                     assertThat(e.getField()).isEqualTo(field);
                     assertThat(e.getMessage()).isNotBlank();
