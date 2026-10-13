@@ -302,9 +302,10 @@ jobs:
           gh label create "qa-digest" --repo "$REPO" --color "5319e7" --description "Nightly QA morning digest" --force
           issue=$(gh issue list --repo "$REPO" --label qa-digest --state open --limit 1 --json number --jq '.[0].number // empty')
           if [ -z "$issue" ]; then
-            gh issue create --repo "$REPO" --label qa-digest --title "🌅 Nightly QA digest" \
-              --body "Rolling issue: the Nightly QA agents workflow posts one comment here every morning."
-            issue=$(gh issue list --repo "$REPO" --label qa-digest --state open --limit 1 --json number --jq '.[0].number')
+            # Take the number from the URL gh prints; issue search lags a few seconds behind creation.
+            url=$(gh issue create --repo "$REPO" --label qa-digest --title "🌅 Nightly QA digest" \
+              --body "Rolling issue: the Nightly QA agents workflow posts one comment here every morning.")
+            issue="${url##*/}"
           fi
           gh issue comment "$issue" --repo "$REPO" --body-file "$digest"
 
