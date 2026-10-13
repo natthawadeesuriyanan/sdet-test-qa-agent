@@ -147,10 +147,10 @@ jobs:
       - name: Verify Claude API secret
         if: env.TESTS_RESULT != 'success'
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY_NAAM }}
         run: |
           if [ -z "$ANTHROPIC_API_KEY" ]; then
-            echo "::error::ANTHROPIC_API_KEY is required for QA triage. Add it in Settings > Secrets and variables > Actions."
+            echo "::error::ANTHROPIC_API_KEY_NAAM secret is required for QA triage. Add it in Settings > Secrets and variables > Actions."
             exit 1
           fi
 
@@ -191,7 +191,8 @@ jobs:
           GOREST_API_TOKEN: ${{ secrets.GOREST_API_TOKEN }}
           SAUCEDEMO_HEADLESS: "true"
         with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY_NAAM }}
+          github_token: ${{ github.token }}   # use workflow token; Claude GitHub App is not installed
           prompt: |
             Run /triage-run ${{ github.run_id }}.
 
@@ -276,7 +277,8 @@ jobs:
         if: env.TESTS_RESULT != 'success'
         uses: anthropics/claude-code-action@v1
         with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY_NAAM }}
+          github_token: ${{ github.token }}   # use workflow token; Claude GitHub App is not installed
           prompt: |
             Delegate to the release-risk-reporter subagent for workflow run ${{ github.run_id }}.
             Inputs are in triage/${{ github.run_id }}/: workflow-jobs.json, failures.json, the
