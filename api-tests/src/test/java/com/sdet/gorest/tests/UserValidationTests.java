@@ -102,7 +102,7 @@ class UserValidationTests extends BaseApiTest {
         assertThat(userSteps.findByEmail(existing.getEmail())).hasSize(1);
     }
 
-    @Disabled("KNOWN DEFECT: case-variant duplicate email is accepted (201). See README > Findings.")
+   // @Disabled("KNOWN DEFECT: case-variant duplicate email is accepted (201). See README > Findings.")
     @Test
     @DisplayName("POST with an email differing only by case -> 422 duplicate email")
     void duplicate_email_ignores_case() {
