@@ -247,13 +247,17 @@ While building it I also fixed issues involving action versioning, test discover
 
 ---
 
-# QA nightly and automated triage
+# Nightly QA agents
 
-The Claude Code agent definitions and triage skill follow the [QA Agent Team design plan](./QA%20Agent%20Team%20%E2%80%94%20Design%20and%20Build%20Plan.md). At 02:00 Asia/Bangkok (19:00 UTC), `QA nightly` checks out `main`, runs the UI and API Maven suites in parallel, and retains Surefire/Allure reports plus UI failure screenshots and Playwright traces. When that run fails, `QA triage and agents` checks out `main`, collects evidence and failed-job details, then delegates each failed test to `failure-triage`. Verified, reproducible product bugs can create deduplicated issues, and high-confidence test defects can create draft PRs after targeted tests and the deterministic test-only diff policy pass. Configure `main` to require human review before merge; agents do not approve PRs, close issues, or mark work confirmed.
+`.github/workflows/nightly-qa-agents.yml` runs every day at 02:00 Asia/Bangkok (19:00 UTC) from a fresh checkout of `main`, and can also be started manually from the Actions tab:
 
-To enable the AI triage workflow, install the [Claude GitHub App](https://github.com/apps/claude), publish both workflow files and the agent definitions to `main`, then add `ANTHROPIC_API_KEY` and `GOREST_API_TOKEN` as repository Actions secrets. Missing `GOREST_API_TOKEN` fails the API job and is reported as an environment failure; no bug issue or fix PR is created from missing-credential failures. After adding the token, manually run `QA nightly` from `main` to produce fresh evidence. The triage workflow uses GitHub's short-lived workflow identity and `GITHUB_TOKEN` with `contents`, `issues`, and `pull-requests` write permissions so agents can publish issues and draft PRs. These scopes can also modify/close issues or merge PRs through GitHub APIs; agent instructions and CLI deny rules are guardrails, not a permission boundary. **Before enabling write permissions, configure `main` to require at least one PR approval, enforce the rule for administrators, and disallow bypass.**
+1. **Run test suites** — a matrix job runs `api-tests` and `ui-tests` in parallel (`fail-fast: false`) and uploads `api-tests-evidence` / `ui-tests-evidence` (Surefire, Allure, screenshots, traces).
+2. **Triage and report** — when a suite fails, Claude agents (`failure-triage` → `issue-reporter` → `test-fixer`) classify each failure, raise every impediment as a deduplicated issue (`[Product bug]`, `[Automation]`, `[Environment]`, `[Flaky]`, `[Needs triage]`, all labelled `needs-decision`), and open a ready-for-review PR from a `claude/fix-*` branch for each automation script error. Fix PRs request review from the `QA_REVIEWER` repository variable (defaults to the repo owner) and wait for human approval.
+3. **Morning digest** — `release-risk-reporter` summarises the night (suite status, failures by verdict, links to issues and PRs) into the run summary and a comment on the rolling `🌅 Nightly QA digest` issue.
 
-Test-fix PRs are limited to test source/resources, at most three files and 40 changed lines, with no removed assertion lines; the quality-policy script enforces these limits before a PR is opened. Test Fixer does not receive the GoREST API token, so API fixes that cannot pass their targeted test are withheld for human review.
+Setup: add `ANTHROPIC_API_KEY` and `GOREST_API_TOKEN` as Actions secrets, keep the [Claude GitHub App](https://github.com/apps/claude) installed, and enable *Settings → Actions → General → Allow GitHub Actions to create and approve pull requests*. **Protect `main` with at least one required approval, enforced for administrators**: the triage job has `contents`, `issues` and `pull-requests` write scopes, and agent instructions plus `.claude/settings.json` deny rules are guardrails, not a permission boundary.
+
+Fix PRs are limited to test source/resources, at most three files and 40 changed lines, with no removed assertion lines; the quality-policy script enforces this before a PR is opened. `test-fixer` may run the single failing API test with the GoREST sandbox token to validate a fix; the token is never written to evidence.
 
 ---
 

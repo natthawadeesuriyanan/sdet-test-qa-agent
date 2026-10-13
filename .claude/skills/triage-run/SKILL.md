@@ -1,14 +1,14 @@
 ---
 name: triage-run
-description: Triages a failed nightly run and routes verified product bugs and test defects to guarded issue and draft-PR agents.
+description: Triages a failed nightly run, raises every impediment as a GitHub issue, and opens review-ready fix PRs for automation script errors.
 disable-model-invocation: true
 ---
 Workflow run ID: `$ARGUMENTS`
 
-1. Read `triage/$ARGUMENTS/failures.json` and `triage/$ARGUMENTS/workflow-jobs.json`. If there are no failed tests, report failed job/step details as a run-level `ENVIRONMENT` finding in `triage/$ARGUMENTS/run-environment.json` and the digest; do not invoke Bug Reporter or Test Fixer or invent a test defect.
+1. Read `triage/$ARGUMENTS/failures.json` and `triage/$ARGUMENTS/workflow-jobs.json`. A failed job whose suite produced no failed tests (e.g. missing secret, compile error, runner failure) is a run-level `ENVIRONMENT` finding: record it in `triage/$ARGUMENTS/run-environment.json` with a fingerprint of `<job name> + <failed step>`. A compile error in test code that clearly points at the test source is a `TEST_DEFECT` instead.
 2. Read `triage/$ARGUMENTS/ui-traces.json` when present. For each failed test, delegate to `failure-triage`; process no more than five tests concurrently. Include its Surefire report, trace summary, and screenshot paths when present.
-3. Have each triage produce one handoff JSON under `triage/$ARGUMENTS/`. Missing or conflicting evidence must produce `UNKNOWN`.
-4. For every `PRODUCT_BUG` handoff with confidence at least 0.8 and recorded 3/3 reproduction, delegate to `bug-reporter` to search for duplicates and create one GitHub issue labeled `agent:bug` and `needs-decision`.
-5. For every `TEST_DEFECT` handoff with confidence at least 0.8, delegate to `test-fixer` (at most three fixes per run). It may open a draft PR only after the targeted tests and the deterministic quality-policy check pass. Do not route `ENVIRONMENT`, `FLAKY`, or `UNKNOWN` to either write-capable agent.
-6. Neither agent may merge, close, or mark work confirmed. If a required secret is missing, required tests cannot run, duplicate search fails, or any validation fails, do not create that issue/PR and state the blocker in the digest.
-7. Ask `release-risk-reporter` to write `triage/$ARGUMENTS/digest.md` from verified job outcomes, handoffs, created issue URLs, and draft PR URLs.
+3. Each triage produces one handoff JSON under `triage/$ARGUMENTS/`. Missing or conflicting evidence must produce `UNKNOWN`.
+4. Raise impediments: delegate every handoff and every run-level finding to `issue-reporter`, which creates one deduplicated issue per fingerprint (or comments on the existing one). Group failures that share a fingerprint into one issue.
+5. Fix automation script errors: for every `TEST_DEFECT` handoff with confidence at least 0.8, after its issue exists, delegate to `test-fixer` (at most three per run) with the issue number and the PR reviewer from the prompt. It opens a PR only after the targeted tests and the deterministic quality-policy check pass. Do not route `PRODUCT_BUG`, `ENVIRONMENT`, `FLAKY`, or `UNKNOWN` to `test-fixer`.
+6. No agent may merge, approve, close, or mark work confirmed. If duplicate search fails, required tests cannot run, or validation fails, skip that issue/PR and record the blocker in `triage/$ARGUMENTS/blockers.md`.
+7. Finish with a short `triage/$ARGUMENTS/summary.md`: failures by verdict with links to issues and PRs. The Morning digest job turns this into the digest.

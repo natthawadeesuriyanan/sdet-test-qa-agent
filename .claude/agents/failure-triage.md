@@ -28,4 +28,4 @@ Write one JSON file under `triage/<run-id>/` per failed test, using a stable fil
 }
 ```
 
-Use `bug-reporter` only for a reproducible `PRODUCT_BUG` at or above 0.8 confidence, and `test-fixer` only for a well-supported `TEST_DEFECT` at or above 0.8 confidence. Otherwise set `next_agent` to `null`.
+Every handoff goes to `issue-reporter` so the impediment is raised as an issue. Set `next_agent` to `test-fixer` only for a well-supported `TEST_DEFECT` at or above 0.8 confidence; otherwise set it to `issue-reporter`.

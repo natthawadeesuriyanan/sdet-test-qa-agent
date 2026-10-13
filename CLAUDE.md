@@ -26,4 +26,4 @@ Do not infer reproduction, failure history, or the first failing commit when tha
 
 ## Rollout safety
 
-The initial workflow is shadow-only: it may read workflow artifacts and write triage files for upload, but it cannot create issues or pull requests, push commits, or merge changes. Do not enable those actions until the human rollout criteria in the design plan have been met and permissions are deliberately reviewed.
+The `Nightly QA agents` workflow is live: agents may raise issues for every impediment, push `claude/fix-*` branches and open pull requests for automation script errors. They must never push to `main`, force-push, merge, approve, close issues or PRs, or mark anything confirmed. Every issue and PR waits for human review the next morning.

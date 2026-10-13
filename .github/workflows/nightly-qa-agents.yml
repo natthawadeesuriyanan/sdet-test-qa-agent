@@ -1,0 +1,318 @@
+name: Nightly QA agents
+
+# Every night at 02:00 Asia/Bangkok:
+#   1. Run test suites (matrix: api-tests, ui-tests) from a fresh checkout of main
+#   2. Triage and report  - Claude agents classify every failure, raise each impediment
+#                           as a GitHub issue, and open a fix PR for automation-script errors
+#   3. Morning digest     - Claude writes a summary for the morning review
+#
+# Agents never merge, approve or close anything. Fix PRs wait for human review.
+
+on:
+  schedule:
+    - cron: "0 19 * * *"   # 19:00 UTC = 02:00 Asia/Bangkok (UTC+7), every day
+  workflow_dispatch:        # manual run from the Actions tab
+
+concurrency:
+  group: nightly-qa-agents
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  # Person asked to review fix PRs. Set repo variable QA_REVIEWER to override.
+  QA_REVIEWER: ${{ vars.QA_REVIEWER || github.repository_owner }}
+
+jobs:
+  # ---------------------------------------------------------------------------
+  tests:
+    name: Run test suites (${{ matrix.suite }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false          # one suite failing must not cancel the other
+      matrix:
+        suite: [api-tests, ui-tests]
+    defaults:
+      run:
+        working-directory: ${{ matrix.suite }}
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v5
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+
+      - name: Install Playwright Chromium
+        if: matrix.suite == 'ui-tests'
+        run: mvn -B -ntp test-compile exec:java -e -Dexec.classpathScope=test -Dexec.mainClass=com.microsoft.playwright.CLI -Dexec.args="install --with-deps chromium"
+
+      - name: Verify GoREST API token
+        if: matrix.suite == 'api-tests'
+        env:
+          TOKEN_CHECK: ${{ secrets.GOREST_API_TOKEN }}
+        run: |
+          if [ -z "$TOKEN_CHECK" ]; then
+            echo "::error::GOREST_API_TOKEN secret is not set. Add it in Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+
+      - name: Run ${{ matrix.suite }}
+        env:
+          SAUCEDEMO_HEADLESS: "true"
+          GOREST_API_TOKEN: ${{ matrix.suite == 'api-tests' && secrets.GOREST_API_TOKEN || '' }}
+        run: mvn -B -ntp clean test
+
+      - name: Upload ${{ matrix.suite }} evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v5
+        with:
+          name: ${{ matrix.suite }}-evidence
+          path: |
+            ${{ matrix.suite }}/target/surefire-reports/
+            ${{ matrix.suite }}/target/allure-results/
+            ${{ matrix.suite }}/target/screenshots/
+            ${{ matrix.suite }}/target/traces/
+          if-no-files-found: warn
+          retention-days: 14
+
+  # ---------------------------------------------------------------------------
+  triage:
+    name: Triage and report
+    needs: tests
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      actions: read          # read job results of this run
+      contents: write        # push claude/fix-* branches (never main)
+      issues: write          # raise impediments in the Issues tab
+      pull-requests: write   # open fix PRs for review
+      id-token: write        # Claude GitHub App identity
+    env:
+      RUN_ID: ${{ github.run_id }}
+      REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ github.token }}
+      TESTS_RESULT: ${{ needs.tests.result }}
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v5
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Download test evidence
+        uses: actions/download-artifact@v5
+        with:
+          pattern: "*-evidence"
+          path: evidence
+
+      - name: Record test job outcomes
+        run: |
+          mkdir -p "triage/$RUN_ID" evidence
+          gh api "repos/$REPO/actions/runs/$RUN_ID/jobs" --paginate \
+            --jq '[.jobs[] | select(.name | startswith("Run test suites")) | {name, conclusion, html_url, failed_steps: [.steps[] | select(.conclusion == "failure") | .name]}]' \
+            > "triage/$RUN_ID/workflow-jobs.json"
+          cat "triage/$RUN_ID/workflow-jobs.json"
+
+      - name: Parse Surefire failures
+        id: parse
+        run: |
+          python3 .claude/skills/log-analysis/scripts/parse_junit.py evidence \
+            --run-id "$RUN_ID" --output "triage/$RUN_ID/failures.json"
+          count=$(python3 -c "import json,sys;print(len(json.load(open(sys.argv[1]))['failures']))" "triage/$RUN_ID/failures.json")
+          echo "failed_tests=$count" >> "$GITHUB_OUTPUT"
+
+      - name: Summarize Playwright traces
+        run: |
+          if find evidence -name '*.zip' | grep -q .; then
+            python3 .claude/skills/browser-trace/scripts/trace_summary.py evidence --output "triage/$RUN_ID/ui-traces.json"
+          else
+            echo "No Playwright traces in this run."
+          fi
+
+      - name: All suites green
+        if: env.TESTS_RESULT == 'success'
+        run: echo "All test suites passed - no triage needed." | tee "triage/$RUN_ID/all-green.txt"
+
+      # ---- Everything below only runs when a suite failed ----
+      - name: Verify Claude API secret
+        if: env.TESTS_RESULT != 'success'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          if [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "::error::ANTHROPIC_API_KEY is required for QA triage. Add it in Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+
+      - name: Ensure QA agent labels
+        if: env.TESTS_RESULT != 'success'
+        run: |
+          gh label create "agent:bug"         --color "d73a4a" --description "Product bug raised by QA agent" --force
+          gh label create "agent:automation"  --color "1d76db" --description "Automation script error raised by QA agent" --force
+          gh label create "agent:impediment"  --color "c5def5" --description "Environment / flaky / unclear failure raised by QA agent" --force
+          gh label create "agent:fix"         --color "0e8a16" --description "Fix PR opened by QA Test Fixer" --force
+          gh label create "needs-decision"    --color "fbca04" --description "Requires human confirmation" --force
+
+      - name: Set up Java 17
+        if: env.TESTS_RESULT != 'success'
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+
+      - name: Install Playwright Chromium (for targeted UI reruns)
+        if: env.TESTS_RESULT != 'success'
+        working-directory: ui-tests
+        run: mvn -B -ntp test-compile exec:java -e -Dexec.classpathScope=test -Dexec.mainClass=com.microsoft.playwright.CLI -Dexec.args="install --with-deps chromium"
+
+      - name: Configure git author for fix branches
+        if: env.TESTS_RESULT != 'success'
+        run: |
+          git config user.name  "qa-agent[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Run Failure Triage, Issue Reporter and Test Fixer agents
+        if: env.TESTS_RESULT != 'success'
+        uses: anthropics/claude-code-action@v1
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # Lets test-fixer validate a single API test fix. Sandbox token only; redacted from evidence.
+          GOREST_API_TOKEN: ${{ secrets.GOREST_API_TOKEN }}
+          SAUCEDEMO_HEADLESS: "true"
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            Run /triage-run ${{ github.run_id }}.
+
+            Repository: ${{ github.repository }}. Workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            PR reviewer: ${{ env.QA_REVIEWER }}
+
+            Summary of what must happen (the skill has the details):
+            1. Delegate every failed test to the failure-triage subagent (max five at a time).
+               Failed jobs with no test reports are a run-level ENVIRONMENT finding.
+            2. Delegate EVERY finding to issue-reporter so each impediment is raised in the
+               Issues tab (deduplicated by fingerprint; comment on the existing issue instead of
+               creating a duplicate).
+            3. For TEST_DEFECT (automation script error) handoffs with confidence >= 0.8, delegate
+               to test-fixer (max three). It opens a ready-for-review PR from a claude/fix-* branch,
+               links the issue, and requests review from the PR reviewer above.
+            4. Never merge, approve, or close issues or PRs. Never push to main.
+          claude_args: >-
+            --max-turns 150
+            --allowedTools "Agent,Task,Read,Write,Edit,Glob,Grep,Bash(gh issue list:*),Bash(gh issue view:*),Bash(gh issue create:*),Bash(gh issue comment:*),Bash(gh issue edit:*),Bash(gh label list:*),Bash(gh pr list:*),Bash(gh pr view:*),Bash(gh pr create:*),Bash(gh pr edit:*),Bash(gh api:*),Bash(git:*),Bash(mvn:*),Bash(python3:*),Bash(ls:*),Bash(cat:*),Bash(mkdir:*),Bash(jq:*),Bash(find:*)"
+
+      - name: Upload triage results
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: qa-triage-${{ github.run_id }}
+          path: triage/${{ github.run_id }}/
+          if-no-files-found: warn
+          retention-days: 30
+
+  # ---------------------------------------------------------------------------
+  digest:
+    name: Morning digest
+    needs: [tests, triage]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      issues: write          # post the digest to the rolling "Nightly QA digest" issue
+      id-token: write
+    env:
+      RUN_ID: ${{ github.run_id }}
+      REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ github.token }}
+      TESTS_RESULT: ${{ needs.tests.result }}
+      TRIAGE_RESULT: ${{ needs.triage.result }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v5
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Download triage results
+        uses: actions/download-artifact@v5
+        continue-on-error: true
+        with:
+          name: qa-triage-${{ github.run_id }}
+          path: triage/${{ github.run_id }}
+
+      - name: Collect issues and PRs raised tonight
+        run: |
+          mkdir -p "triage/$RUN_ID"
+          since=$(date -u -d '-6 hours' +%Y-%m-%dT%H:%M:%SZ)
+          gh issue list --repo "$REPO" --state all --search "label:needs-decision updated:>=$since" \
+            --json number,title,url,labels,state > "triage/$RUN_ID/tonight-issues.json" || echo '[]' > "triage/$RUN_ID/tonight-issues.json"
+          gh pr list --repo "$REPO" --state open --label "agent:fix" \
+            --json number,title,url,headRefName,createdAt > "triage/$RUN_ID/open-fix-prs.json" || echo '[]' > "triage/$RUN_ID/open-fix-prs.json"
+
+      - name: All-green digest
+        if: env.TESTS_RESULT == 'success'
+        run: |
+          cat > "triage/$RUN_ID/digest.md" <<MD
+          ## 🌅 Nightly QA digest — $(TZ=Asia/Bangkok date +'%Y-%m-%d')
+          ✅ **api-tests** and **ui-tests** passed on \`main\`. No impediments raised.
+
+          [Run details]($RUN_URL)
+          MD
+
+      - name: Write digest with release-risk-reporter agent
+        if: env.TESTS_RESULT != 'success'
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            Delegate to the release-risk-reporter subagent for workflow run ${{ github.run_id }}.
+            Inputs are in triage/${{ github.run_id }}/: workflow-jobs.json, failures.json, the
+            per-test handoff JSON files, run-environment.json, issue-drafts/created-issues.json,
+            created-prs.json, tonight-issues.json and open-fix-prs.json (any may be missing; say so).
+            Triage job result: ${{ needs.triage.result }}. Run URL: ${{ env.RUN_URL }}
+            Write triage/${{ github.run_id }}/digest.md for a morning review: suite status, failures
+            by verdict, links to every issue and fix PR raised, and the decisions waiting on the reviewer.
+          claude_args: >-
+            --max-turns 30
+            --allowedTools "Agent,Task,Read,Write,Glob,Grep"
+
+      - name: Publish digest
+        if: always()
+        run: |
+          digest="triage/$RUN_ID/digest.md"
+          if [ ! -s "$digest" ]; then
+            printf '## 🌅 Nightly QA digest\n⚠️ No digest was produced (tests: %s, triage: %s). See [the run](%s).\n' \
+              "$TESTS_RESULT" "$TRIAGE_RESULT" "$RUN_URL" > "$digest"
+          fi
+          cat "$digest" >> "$GITHUB_STEP_SUMMARY"
+
+          gh label create "qa-digest" --repo "$REPO" --color "5319e7" --description "Nightly QA morning digest" --force
+          issue=$(gh issue list --repo "$REPO" --label qa-digest --state open --limit 1 --json number --jq '.[0].number // empty')
+          if [ -z "$issue" ]; then
+            gh issue create --repo "$REPO" --label qa-digest --title "🌅 Nightly QA digest" \
+              --body "Rolling issue: the Nightly QA agents workflow posts one comment here every morning."
+            issue=$(gh issue list --repo "$REPO" --label qa-digest --state open --limit 1 --json number --jq '.[0].number')
+          fi
+          gh issue comment "$issue" --repo "$REPO" --body-file "$digest"
+
+      - name: Add digest to triage results
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: qa-triage-${{ github.run_id }}
+          path: triage/${{ github.run_id }}/
+          overwrite: true
+          retention-days: 30
