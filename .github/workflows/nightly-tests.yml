@@ -1,0 +1,107 @@
+name: QA nightly
+
+on:
+  schedule:
+    # 02:00 Asia/Bangkok (UTC+7).
+    - cron: "0 19 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: qa-nightly-main
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  ui-tests:
+    name: UI tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          ref: main
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+
+      - name: Install Playwright Chromium
+        working-directory: ui-tests
+        run: mvn test-compile exec:java -e -Dexec.classpathScope=test -Dexec.mainClass=com.microsoft.playwright.CLI -Dexec.args="install --with-deps chromium"
+
+      - name: Run UI tests
+        working-directory: ui-tests
+        env:
+          SAUCEDEMO_HEADLESS: "true"
+        run: mvn clean test
+
+      - name: Upload UI reports
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: ui-test-evidence
+          path: |
+            ui-tests/target/surefire-reports/
+            ui-tests/target/allure-results/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload UI failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v5
+        with:
+          name: ui-failure-evidence
+          path: |
+            ui-tests/target/screenshots/
+            ui-tests/target/traces/
+          if-no-files-found: warn
+          retention-days: 14
+
+  api-tests:
+    name: API tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          ref: main
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+
+      - name: Verify GoREST API token
+        env:
+          TOKEN_CHECK: ${{ secrets.GOREST_API_TOKEN }}
+        run: |
+          if [ -z "$TOKEN_CHECK" ]; then
+            echo "::error::GOREST_API_TOKEN secret is not set. Add it in Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+
+      - name: Run API tests
+        working-directory: api-tests
+        env:
+          GOREST_API_TOKEN: ${{ secrets.GOREST_API_TOKEN }}
+        run: mvn clean test
+
+      - name: Upload API reports and transcripts
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: api-test-evidence
+          path: |
+            api-tests/target/surefire-reports/
+            api-tests/target/allure-results/
+          if-no-files-found: warn
+          retention-days: 14
