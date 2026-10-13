@@ -193,6 +193,7 @@ jobs:
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY_NAAM }}
           github_token: ${{ github.token }}   # use workflow token; Claude GitHub App is not installed
+          show_full_output: true              # print Claude's messages/errors in the step log
           prompt: |
             Run /triage-run ${{ github.run_id }}.
 
@@ -274,11 +275,14 @@ jobs:
           MD
 
       - name: Write digest with release-risk-reporter agent
+        id: ai_digest
         if: env.TESTS_RESULT != 'success'
+        continue-on-error: true   # fall back to the scripted digest below
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY_NAAM }}
           github_token: ${{ github.token }}   # use workflow token; Claude GitHub App is not installed
+          show_full_output: true              # print Claude's messages/errors in the step log
           prompt: |
             Delegate to the release-risk-reporter subagent for workflow run ${{ github.run_id }}.
             Inputs are in triage/${{ github.run_id }}/: workflow-jobs.json, failures.json, the
@@ -296,8 +300,37 @@ jobs:
         run: |
           digest="triage/$RUN_ID/digest.md"
           if [ ! -s "$digest" ]; then
-            printf '## 🌅 Nightly QA digest\n⚠️ No digest was produced (tests: %s, triage: %s). See [the run](%s).\n' \
-              "$TESTS_RESULT" "$TRIAGE_RESULT" "$RUN_URL" > "$digest"
+            # Scripted fallback when the AI digest is unavailable.
+            python3 - "$RUN_ID" "$TESTS_RESULT" "$TRIAGE_RESULT" "$RUN_URL" > "$digest" <<'PY'
+          import json, sys, pathlib
+          run, tests, triage, url = sys.argv[1:5]
+          d = pathlib.Path("triage") / run
+          def load(name, default):
+              try: return json.loads((d / name).read_text())
+              except Exception: return default
+          jobs = load("workflow-jobs.json", [])
+          fails = load("failures.json", {}).get("failures", [])
+          issues = load("tonight-issues.json", [])
+          prs = load("open-fix-prs.json", [])
+          icon = {"success": "✅", "failure": "❌", "skipped": "⏭️", "cancelled": "🚫"}
+          print("## 🌅 Nightly QA digest")
+          print(f"_AI digest unavailable — scripted summary. Tests: **{tests}**, triage: **{triage}**._\n")
+          print("| Suite | Result | Failed steps |\n|---|---|---|")
+          for j in jobs:
+              print(f"| {j['name']} | {icon.get(j.get('conclusion'), j.get('conclusion'))} | {', '.join(j.get('failed_steps', [])) or '-'} |")
+          print(f"\n### Failed tests ({len(fails)})")
+          for f in fails[:30]:
+              msg = (f.get("message") or f.get("type") or "").splitlines()[0][:160] if (f.get("message") or f.get("type")) else ""
+              print(f"- `{f['test_id']}` — {msg}")
+          if len(fails) > 30: print(f"- …and {len(fails) - 30} more")
+          print(f"\n### Issues raised/updated ({len(issues)})")
+          for i in issues: print(f"- [#{i['number']} {i['title']}]({i['url']})")
+          if not issues: print("- none")
+          print(f"\n### Open fix PRs awaiting review ({len(prs)})")
+          for p in prs: print(f"- [#{p['number']} {p['title']}]({p['url']})")
+          if not prs: print("- none")
+          print(f"\n[Run details]({url})")
+          PY
           fi
           cat "$digest" >> "$GITHUB_STEP_SUMMARY"
 
