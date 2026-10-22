@@ -183,18 +183,13 @@ public abstract class BaseTest {
     }
 
     protected CheckoutActions beginCheckout(CartActions cart) {
-        cart.checkout();
-        checkoutActions = new CheckoutActions(checkoutLocators);
-        CheckoutTestData data = CheckoutTestData.unique();
-        checkoutActions.enterInformation(data.firstName(), data.lastName(), data.postalCode());
-        checkoutActions.continueToOverview();
-        return checkoutActions;
+        return beginCheckout(cart, CheckoutTestData.unique());
     }
 
-    protected CheckoutActions beginCheckout(CartActions cart, String first, String last, String postal) {
+    protected CheckoutActions beginCheckout(CartActions cart, CheckoutTestData data) {
         cart.checkout();
         checkoutActions = new CheckoutActions(checkoutLocators);
-        checkoutActions.enterInformation(first, last, postal);
+        checkoutActions.enterInformation(data.firstName(), data.lastName(), data.postalCode());
         checkoutActions.continueToOverview();
         return checkoutActions;
     }
